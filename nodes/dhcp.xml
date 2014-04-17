@@ -1,0 +1,65 @@
+<?xml version="1.0" standalone="no"?>
+
+<kickstart>
+
+
+	<description>
+	Your dhcp roll description here
+	</description>
+
+	<copyright>
+	Copyright (c) 2000 - 2012 The Regents of the University of California.
+	All rights reserved. Rocks(r) v5.5/v6.0 www.rocksclusters.org
+	
+	</copyright>
+
+	<changelog>
+	$Log$
+	</changelog>
+
+	<package>rocks-dhcp</package>
+	<package>cloud-init</package>
+	<package>roll-dhcp-usersguide</package>
+
+<post>
+
+/sbin/chkconfig rocks-dhcp on
+
+<file name="/tmp/patch_cloud">
+--- cloud.cfg.orig	2014-04-11 01:48:07.143681949 -0700
++++ cloud.cfg	2014-04-14 11:33:00.733758649 -0700
+@@ -1,7 +1,5 @@
+-users:
+- - default
+ 
+-disable_root: 1
++disable_root: 0
+ ssh_pwauth:   0
+ 
+ locale_configfile: /etc/sysconfig/i18n
+@@ -27,8 +25,6 @@
+  - locale
+  - set-passwords
+  - timezone
+- - puppet
+- - chef
+  - salt-minion
+  - mcollective
+  - disable-ec2-metadata
+</file>
+
+cd /etc/cloud
+patch -p0 &lt; /tmp/patch_cloud
+
+
+# let's set the network to dhcp if it is not already the case
+/opt/rocks/bin/rocks set host interface options &Kickstart_PrivateHostname; &Kickstart_PublicInterface; dhcp
+/opt/rocks/bin/rocks report host interface &Kickstart_PrivateHostname; | /opt/rocks/bin/rocks report script | bash
+
+rm -rf /etc/udev/rules.d/70-persistent-net.rules
+
+
+</post>
+
+
+</kickstart>

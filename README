@@ -1,0 +1,17 @@
+Experimental Frontend Under DHCP with Cloud Init
+------------------------------------------------
+
+
+This is a development test of running rocks with cloud-init 
+and DHCP on the public interface.
+
+To run this roll you need at least Rocks 6.2 (with the 
+rocks run reconfigure).
+
+After installing the roll with the standard procedure you 
+should shutdown the frontend and then at the next 
+reboot the machine will try to dhcp from the public 
+interface.
+
+The private interface problems have not been addressed yet.
+

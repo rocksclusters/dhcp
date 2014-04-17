@@ -1,0 +1,174 @@
+#!/bin/sh
+#
+# chkconfig: 345 92 92
+# description: Reconfigure Rocks frontend to use DHCP on the public interface
+#
+# @Copyright@
+# 
+# 				Rocks(r)
+# 		         www.rocksclusters.org
+# 		         version 5.6 (Emerald Boa)
+# 		         version 6.1 (Emerald Boa)
+# 
+# Copyright (c) 2000 - 2013 The Regents of the University of California.
+# All rights reserved.	
+# 
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are
+# met:
+# 
+# 1. Redistributions of source code must retain the above copyright
+# notice, this list of conditions and the following disclaimer.
+# 
+# 2. Redistributions in binary form must reproduce the above copyright
+# notice unmodified and in its entirety, this list of conditions and the
+# following disclaimer in the documentation and/or other materials provided 
+# with the distribution.
+# 
+# 3. All advertising and press materials, printed or electronic, mentioning
+# features or use of this software must display the following acknowledgement: 
+# 
+# 	"This product includes software developed by the Rocks(r)
+# 	Cluster Group at the San Diego Supercomputer Center at the
+# 	University of California, San Diego and its contributors."
+# 
+# 4. Except as permitted for the purposes of acknowledgment in paragraph 3,
+# neither the name or logo of this software nor the names of its
+# authors may be used to endorse or promote products derived from this
+# software without specific prior written permission.  The name of the
+# software includes the following terms, and any derivatives thereof:
+# "Rocks", "Rocks Clusters", and "Avalanche Installer".  For licensing of 
+# the associated name, interested parties should contact Technology 
+# Transfer & Intellectual Property Services, University of California, 
+# San Diego, 9500 Gilman Drive, Mail Code 0910, La Jolla, CA 92093-0910, 
+# Ph: (858) 534-5815, FAX: (858) 534-7345, E-MAIL:invent@ucsd.edu
+# 
+# THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS''
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+# THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS
+# BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+# BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+# WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+# OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+# IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# 
+# @Copyright@
+#
+#
+
+. /etc/init.d/functions
+. /etc/profile.d/sge-binaries.sh
+
+logfile=/var/log/rocks_dhcp.log
+
+
+function reconfigFE() {
+
+	#
+	# redirect stdout and stderr 
+	#
+	exec > $logfile 2>&1
+	
+	# get old values
+	old_hostname=`/opt/rocks/bin/rocks list attr |/bin/awk '/Kickstart_PublicHostname:/ {print $2}'`
+	old_fe_hostname=`/opt/rocks/bin/rocks list attr |/bin/awk '/Kickstart_PrivateHostname:/ {print $2}'`
+	old_ip_address=`/opt/rocks/bin/rocks report host attr $old_fe_hostname attr=Kickstart_PublicAddress`
+	old_subnet_mask=`/opt/rocks/bin/rocks report host attr $old_fe_hostname attr=Kickstart_PublicNetmask`
+	old_gateway=`/opt/rocks/bin/rocks report host attr $old_fe_hostname attr=Kickstart_PublicGateway`
+	old_mtu=`/opt/rocks/bin/rocks list network public | /usr/bin/tail -1 |/bin/awk '{print $3}'`
+	old_dns=`/opt/rocks/bin/rocks report host attr $old_fe_hostname attr=Kickstart_PublicDNSServers`
+	public_interface=`/opt/rocks/bin/rocks report host attr $old_fe_hostname attr=Kickstart_PublicInterface`
+
+	# get new values	
+	new_ip_address=`ifconfig $public_interface | awk '/inet / { sub(/addr:/, "", $2); print $2 }'`
+	new_subnet_mask=`ifconfig $public_interface | awk '/inet / { sub(/Mask:/, "", $4); print $4 }'`
+	new_gateway=`ip r|awk '/default/ {print $3}'`
+	new_hostname=`hostname`
+	new_mtu=`ifconfig $public_interface  | awk '/MTU:/ { sub(/MTU:/, "", $5); print $5}'`
+	new_dns=`awk ' /nameserver/ {print $2}' /etc/resolv.conf | grep -v 127.0.0.1 | tail -1`
+
+	# this is to dump local variable 
+	/bin/echo -----   DEBUG   -----
+	( set -o posix ; set )
+	/bin/echo ----- DEBUG END -----
+
+
+	#
+	# let's start the actual reconfiguration
+	#
+	/opt/rocks/bin/rocks run reconfigure clear=1
+	reconfigure=false
+	if [ "$old_ip_address" != "${new_ip_address}" ]; then
+		echo Setting new IP address ${new_ip_address}
+		/opt/rocks/bin/rocks set attr attr=Kickstart_PublicAddress value="${new_ip_address}"
+		reconfigure=true
+	fi
+	if [ "$new_hostname" ] && [ "$old_hostname" != "$new_hostname" ]; then
+		echo Setting new new hostname $new_hostname
+		/opt/rocks/bin/rocks set attr attr=Kickstart_PublicHostname value="${new_hostname}"
+	fi
+	if [ "$old_subnet_mask" != "$new_subnet_mask" ]; then
+		echo Setting new subnet mask $new_subnet_mask
+		/opt/rocks/bin/rocks set attr attr=Kickstart_PublicNetmask value="${new_subnet_mask}"
+	fi
+	if [ "$new_gateway" ] && [ "$old_gateway" != "$new_gateway" ]; then
+		echo Setting new gateway $new_gateway
+		/opt/rocks/bin/rocks set attr attr=Kickstart_PublicGateway value="${new_gateway}"
+	fi
+	if [ "$new_dns" ] && [ "$old_dns" != "$new_dns" ] ; then
+		echo Setting new DNS server $new_dns
+		/opt/rocks/bin/rocks set attr attr=Kickstart_PublicDNSServers value="${new_dns}"
+	fi
+
+	if [ "$new_mtu" ] && [  "$new_mtu" != "$old_mtu" ] ; then 
+		echo Setting new MTU value $new_mtu
+		/opt/rocks/bin/rocks set network mtu private $new_mtu
+	fi
+
+	changed_attr="`/opt/rocks/bin/rocks run reconfigure showattr=1`"
+	if [ "$?" != "0" ]; then 
+		echo Major failure in reconfiguring:
+		echo -e "$changed_attr"
+		return
+	fi
+
+	if [ `echo -e "$changed_attr" | wc -l` = "1" ]; then
+		echo Nothing changed no need to reconfigure
+		return
+	else
+		echo Run the reconfigure
+		/opt/rocks/bin/rocks run reconfigure > /tmp/rocks_dhcp_script.sh
+		bash /tmp/rocks_dhcp_script.sh
+	fi
+
+
+}
+
+
+
+case "$1" in
+    start)
+        #action $"Condor Post Installation" $PRECONFIG 2> /dev/null
+        echo "Starting rocks-dhcp...."
+	reconfigFE
+        RETVAL=$?
+        ;;
+    stop)
+	echo "Stopping rocks-dhcp..."
+        RETVAL=0
+        ;;
+    restart)
+	echo restart not implemented yet
+        #$0 stop
+        #$0 start
+        RETVAL=$?
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $RETVAL
